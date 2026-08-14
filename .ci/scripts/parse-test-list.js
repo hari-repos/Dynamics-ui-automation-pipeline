@@ -8,7 +8,7 @@
  * 1. Reads root package.json "workspaces" field to find all app packages under apps/*.
  * 2. Filters to apps containing a playwright.config.ts file.
  * 3. Runs `npx playwright test --config apps/<app>/playwright.config.ts --list --reporter=json` for each app.
- * 4. Merges test manifests from all apps into a combined suite list.
+ * 4. Extracts Playwright's actual manifest JSON safely ignoring any dotenv or logger output.
  * 5. Evaluates FILTER_TAGS env var using AND/OR tag logic:
  *      - Comma (,) = OR logic (e.g. "@SalesModule, @BillingModule")
  *      - Space ( ) = AND logic (e.g. "@SalesModule @Smoke")
@@ -23,7 +23,7 @@ const { execSync } = require('child_process');
 
 const REPO_ROOT     = process.cwd();
 const ROOT_PKG_PATH = path.join(REPO_ROOT, 'package.json');
-const FILTER_TAGS   = process.env.FILTER_TAGS || '';
+const FILTER_TAGS   = process.env.FILTER_TAGS || 'all';
 
 if (!fs.existsSync(ROOT_PKG_PATH)) {
   console.error(`##[error] Root package.json not found at: ${ROOT_PKG_PATH}`);
@@ -63,6 +63,28 @@ if (testApps.length === 0) {
 
 console.log(`🔍 Discovered ${testApps.length} test app workspace(s): [${testApps.map(d => path.basename(d)).join(', ')}]`);
 
+/** Finds and returns Playwright's actual test manifest JSON, ignoring any dotenv or log objects */
+function extractPlaywrightJson(stdout) {
+  let startIdx = 0;
+  while ((startIdx = stdout.indexOf('{', startIdx)) !== -1) {
+    let endIdx = stdout.lastIndexOf('}');
+    while (endIdx > startIdx) {
+      const candidate = stdout.slice(startIdx, endIdx + 1);
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed && typeof parsed === 'object' && (parsed.config || parsed.suites)) {
+          return candidate; // Found Playwright's actual test manifest!
+        }
+      } catch (e) {
+        // Not valid JSON in this slice, try next brace
+      }
+      endIdx = stdout.lastIndexOf('}', endIdx - 1);
+    }
+    startIdx++;
+  }
+  throw new Error(`Could not locate Playwright manifest in stdout. Raw output:\n${stdout.slice(0, 300)}...`);
+}
+
 // Execute Playwright AST --list --reporter=json per app workspace
 const allDiscovered = [];
 
@@ -73,14 +95,15 @@ for (const appDir of testApps) {
   console.log(`   Scanning app '${appName}' using config '${configPath}'...`);
 
   try {
-    const rawJson = execSync(`npx playwright test --config "${configPath}" --list --reporter=json`, {
+    const rawStdout = execSync(`npx playwright test --config "${configPath}" --list --reporter=json`, {
       encoding: 'utf8',
       cwd: REPO_ROOT,
       stdio: ['pipe', 'pipe', 'ignore'],
     });
 
-    const manifest = JSON.parse(rawJson);
-    const appTests = collectTests(manifest.suites || [], appName);
+    const cleanJson = extractPlaywrightJson(rawStdout);
+    const manifest  = JSON.parse(cleanJson);
+    const appTests  = collectTests(manifest.suites || [], appName);
     allDiscovered.push(...appTests);
   } catch (err) {
     console.warn(`⚠️ Warning: Failed to parse test manifest for app '${appName}':`, err.message);
@@ -111,7 +134,7 @@ function collectTests(suites, appName, acc = []) {
 
 // Parse tag expression into OR groups of AND conditions
 function parseTagExpression(rawFilter) {
-  if (!rawFilter || !rawFilter.trim()) return [];
+  if (!rawFilter || !rawFilter.trim() || rawFilter.trim().toLowerCase() === 'all') return [];
 
   const orParts = rawFilter.split(',').map(p => p.trim()).filter(Boolean);
   return orParts.map(orPart => {
