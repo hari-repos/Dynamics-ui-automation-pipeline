@@ -1,0 +1,16 @@
+{
+  "name": "@apps/sales-hub",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "bddgen": "bddgen"
+  },
+  "dependencies": {
+    "@dynamics/d365-helpers": "*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.42.0",
+    "playwright-bdd": "^7.0.0"
+  }
+}

@@ -1,0 +1,401 @@
+# =============================================================================
+# .azure-pipelines/azure-pipelines.yml
+#
+# Dynamics 365 UI Automation Pipeline — Persona-Aware Parallel Execution
+# Zero External Dependencies (Git Branch Locking in Azure Repos)
+# =============================================================================
+
+trigger: none   # Manual trigger only — use "Run pipeline" in Azure DevOps UI
+
+parameters:
+  - name: environment
+    displayName: '🌍 Target Environment'
+    type: string
+    default: 'dev'
+    values:
+      - dev
+      - staging
+      - uat
+
+  - name: filterTags
+    displayName: '🏷️  Test Tags (space = AND, comma = OR — e.g. @SalesModule @Smoke)'
+    type: string
+    default: ''
+
+  - name: browserName
+    displayName: '🌐 Target Browser'
+    type: string
+    default: 'chromium'
+    values:
+      - chromium
+      - firefox
+      - webkit
+      - all
+
+  - name: playwrightWorkers
+    displayName: '🔀 Browser Workers per Job (0 = Auto vCPU capacity calculation)'
+    type: number
+    default: 0
+
+  # ── Service Account Selection Toggles (Default: false) ─────────────────────
+  - name: use_auto01
+    displayName: '🔑 Enable auto01'
+    type: boolean
+    default: false
+
+  - name: use_auto02
+    displayName: '🔑 Enable auto02'
+    type: boolean
+    default: false
+
+  - name: use_auto03
+    displayName: '🔑 Enable auto03'
+    type: boolean
+    default: false
+
+  - name: use_auto04
+    displayName: '🔑 Enable auto04'
+    type: boolean
+    default: false
+
+  - name: use_auto05
+    displayName: '🔑 Enable auto05'
+    type: boolean
+    default: false
+
+  - name: use_auto06
+    displayName: '🔑 Enable auto06'
+    type: boolean
+    default: false
+
+  - name: use_auto07
+    displayName: '🔑 Enable auto07'
+    type: boolean
+    default: false
+
+  - name: use_auto08
+    displayName: '🔑 Enable auto08'
+    type: boolean
+    default: false
+
+  - name: use_auto09
+    displayName: '🔑 Enable auto09'
+    type: boolean
+    default: false
+
+  - name: use_auto10
+    displayName: '🔑 Enable auto10'
+    type: boolean
+    default: false
+
+  - name: use_auto11
+    displayName: '🔑 Enable auto11'
+    type: boolean
+    default: false
+
+  - name: use_auto12
+    displayName: '🔑 Enable auto12'
+    type: boolean
+    default: false
+
+  - name: use_auto13
+    displayName: '🔑 Enable auto13'
+    type: boolean
+    default: false
+
+  - name: use_auto14
+    displayName: '🔑 Enable auto14'
+    type: boolean
+    default: false
+
+  - name: use_auto15
+    displayName: '🔑 Enable auto15'
+    type: boolean
+    default: false
+
+  - name: use_auto16
+    displayName: '🔑 Enable auto16'
+    type: boolean
+    default: false
+
+variables:
+  - group: dynamics365-service-accounts
+  - name: NODE_VERSION
+    value: '25.x'
+  - name: SCRIPTS_DIR
+    value: '$(Build.SourcesDirectory)/.ci/scripts'
+
+stages:
+
+  # ---------------------------------------------------------------------------
+  # STAGE 1 — Discover & Validate
+  # ---------------------------------------------------------------------------
+  - stage: Discover
+    displayName: '🔍 Discover Personas'
+    jobs:
+      - job: DiscoverPersonas
+        displayName: 'Parse feature files & build persona matrix'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+
+          - checkout: self
+            persistCredentials: true
+            fetchDepth: 0
+            displayName: 'Checkout source'
+
+          - task: NodeTool@0
+            displayName: 'Setup Node.js $(NODE_VERSION)'
+            inputs:
+              versionSpec: $(NODE_VERSION)
+
+          - task: npmAuthenticate@0
+            displayName: '🔑 Authenticate npm (.npmrc)'
+            inputs:
+              workingDir: '$(Build.SourcesDirectory)'
+
+          - task: Cache@2
+            displayName: '📦 Cache npm dependencies'
+            inputs:
+              key: 'npm | "$(Agent.OS)" | package-lock.json'
+              restoreKeys: |
+                npm | "$(Agent.OS)"
+              path: '$(HOME)/.npm'
+
+          - script: npm ci
+            displayName: 'Install workspace dependencies'
+            workingDirectory: '$(Build.SourcesDirectory)'
+
+          - script: npm run build:packages
+            displayName: '⚙️  Build internal monorepo packages'
+            workingDirectory: '$(Build.SourcesDirectory)'
+
+          - script: node $(SCRIPTS_DIR)/cleanup-stale-locks.js
+            displayName: '🧹 Clean up stale locks from finished builds'
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+          - bash: |
+              SELECTED=""
+              if [ "${{ parameters.use_auto01 }}" = "True" ]; then SELECTED="${SELECTED},auto01"; fi
+              if [ "${{ parameters.use_auto02 }}" = "True" ]; then SELECTED="${SELECTED},auto02"; fi
+              if [ "${{ parameters.use_auto03 }}" = "True" ]; then SELECTED="${SELECTED},auto03"; fi
+              if [ "${{ parameters.use_auto04 }}" = "True" ]; then SELECTED="${SELECTED},auto04"; fi
+              if [ "${{ parameters.use_auto05 }}" = "True" ]; then SELECTED="${SELECTED},auto05"; fi
+              if [ "${{ parameters.use_auto06 }}" = "True" ]; then SELECTED="${SELECTED},auto06"; fi
+              if [ "${{ parameters.use_auto07 }}" = "True" ]; then SELECTED="${SELECTED},auto07"; fi
+              if [ "${{ parameters.use_auto08 }}" = "True" ]; then SELECTED="${SELECTED},auto08"; fi
+              if [ "${{ parameters.use_auto09 }}" = "True" ]; then SELECTED="${SELECTED},auto09"; fi
+              if [ "${{ parameters.use_auto10 }}" = "True" ]; then SELECTED="${SELECTED},auto10"; fi
+              if [ "${{ parameters.use_auto11 }}" = "True" ]; then SELECTED="${SELECTED},auto11"; fi
+              if [ "${{ parameters.use_auto12 }}" = "True" ]; then SELECTED="${SELECTED},auto12"; fi
+              if [ "${{ parameters.use_auto13 }}" = "True" ]; then SELECTED="${SELECTED},auto13"; fi
+              if [ "${{ parameters.use_auto14 }}" = "True" ]; then SELECTED="${SELECTED},auto14"; fi
+              if [ "${{ parameters.use_auto15 }}" = "True" ]; then SELECTED="${SELECTED},auto15"; fi
+              if [ "${{ parameters.use_auto16 }}" = "True" ]; then SELECTED="${SELECTED},auto16"; fi
+              
+              SELECTED="${SELECTED#,}"
+
+              if [ -z "$SELECTED" ]; then
+                echo "##[error] No service accounts selected! You must enable at least 1 account toggle (use_auto01...16) in the run parameters."
+                exit 1
+              fi
+
+              IFS=',' read -ra ADDR <<< "$SELECTED"
+              COUNT=${#ADDR[@]}
+
+              echo "Selected account count: $COUNT ($SELECTED)"
+              echo "##vso[task.setvariable variable=SELECTED_ACCOUNTS;isOutput=true]$SELECTED"
+              echo "##vso[task.setvariable variable=SELECTED_COUNT;isOutput=true]$COUNT"
+            displayName: '📋 Validate & count selected service accounts'
+            name: accountSelectionStep
+
+          - script: npm run discover
+            displayName: '🔍 Discover tests & build persona matrix'
+            name: discoverStep
+            env:
+              FILTER_TAGS: '${{ parameters.filterTags }}'
+
+  # ---------------------------------------------------------------------------
+  # STAGE 2 — Test Execution (Dynamic Matrix)
+  # ---------------------------------------------------------------------------
+  - stage: TestExecution
+    displayName: '🧪 Test Execution'
+    dependsOn: Discover
+    condition: succeeded('Discover')
+    jobs:
+      - job: RunTests
+        displayName: 'Persona Bucket — @persona:$(PERSONA) [Account: $(ASSIGNED_ACCOUNT)]'
+        timeoutInMinutes: 120
+        cancelTimeoutInMinutes: 5
+        pool:
+          vmImage: ubuntu-latest
+
+        strategy:
+          matrix: $[ stageDependencies.Discover.DiscoverPersonas.outputs['discoverStep.personaMatrix'] ]
+          maxParallel: $[ stageDependencies.Discover.DiscoverPersonas.outputs['accountSelectionStep.SELECTED_COUNT'] ]
+
+        steps:
+
+          - checkout: self
+            persistCredentials: true
+            fetchDepth: 1
+            displayName: 'Checkout source'
+
+          - task: NodeTool@0
+            displayName: 'Setup Node.js $(NODE_VERSION)'
+            inputs:
+              versionSpec: $(NODE_VERSION)
+
+          - task: npmAuthenticate@0
+            displayName: '🔑 Authenticate npm (.npmrc)'
+            inputs:
+              workingDir: '$(Build.SourcesDirectory)'
+
+          - task: Cache@2
+            displayName: '📦 Cache npm dependencies'
+            inputs:
+              key: 'npm | "$(Agent.OS)" | package-lock.json'
+              restoreKeys: |
+                npm | "$(Agent.OS)"
+              path: '$(HOME)/.npm'
+
+          - script: npm ci
+            displayName: 'Install workspace dependencies'
+            workingDirectory: '$(Build.SourcesDirectory)'
+
+          - script: npm run build:packages
+            displayName: '⚙️  Build internal monorepo packages'
+            workingDirectory: '$(Build.SourcesDirectory)'
+
+          - script: |
+              if [ "${{ parameters.browserName }}" = "all" ]; then
+                npx playwright install --with-deps
+              else
+                npx playwright install ${{ parameters.browserName }} --with-deps
+              fi
+            displayName: '🌐 Install Playwright browser binary (${{ parameters.browserName }})'
+            workingDirectory: '$(Build.SourcesDirectory)'
+
+          - bash: bash $(SCRIPTS_DIR)/claim-account.sh
+            displayName: '🔑 Claim exclusive service account for slot'
+            env:
+              ENVIRONMENT: '${{ parameters.environment }}'
+              BUILD_BUILDID: '$(Build.BuildId)'
+              AVAILABLE_ACCOUNTS: '$[ stageDependencies.Discover.DiscoverPersonas.outputs["accountSelectionStep.SELECTED_ACCOUNTS"] ]'
+              SERVICE_ACCOUNT_CATALOG_JSON: $(SERVICE_ACCOUNT_CATALOG_JSON)
+
+          - script: npm run bddgen --workspaces --if-present -- --tags "@persona:$(PERSONA)"
+            displayName: '⚙️  Generate BDD specs for @persona:$(PERSONA)'
+            workingDirectory: '$(Build.SourcesDirectory)'
+
+          - script: npm test --workspaces --if-present -- --grep "@persona:$(PERSONA)"
+            displayName: '▶️  Run Playwright tests for @persona:$(PERSONA)'
+            workingDirectory: '$(Build.SourcesDirectory)'
+            env:
+              TEST_USERNAME: $(TEST_USERNAME)
+              TEST_PASSWORD: $(TEST_PASSWORD)
+              DYNAMICS_URL: $(DYNAMICS_URL_${{ upper(parameters.environment) }})
+              DYNAMICS_API_URL: $(DYNAMICS_API_URL_${{ upper(parameters.environment) }})
+              BROWSER_NAME: '${{ parameters.browserName }}'
+              PLAYWRIGHT_WORKERS: '${{ parameters.playwrightWorkers }}'
+              CI: 'true'
+
+          - task: PublishTestResults@2
+            displayName: '📋 Publish JUnit XML results'
+            condition: always()
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/test-results/junit/*.xml'
+              searchFolder: '$(Build.SourcesDirectory)'
+              testRunTitle: '@persona:$(PERSONA) — ${{ parameters.environment }}'
+              mergeTestResults: true
+
+          - task: PublishPipelineArtifact@1
+            displayName: '📦 Upload raw test data artifact'
+            condition: always()
+            inputs:
+              targetPath: '$(Build.SourcesDirectory)'
+              artifact: 'raw-data-$(PERSONA)'
+
+          - bash: bash $(SCRIPTS_DIR)/release-account.sh
+            displayName: '🔑 Release service account Git lock'
+            condition: always()
+            env:
+              LOCK_REF: $(LOCK_REF)
+              ASSIGNED_ACCOUNT: $(ASSIGNED_ACCOUNT)
+
+  # ---------------------------------------------------------------------------
+  # STAGE 3 — Merged Reporting
+  # ---------------------------------------------------------------------------
+  - stage: Report
+    displayName: '📊 Merged Report'
+    dependsOn: TestExecution
+    condition: always()
+    jobs:
+      - job: PublishMergedReport
+        displayName: 'Merge & publish single-folder HTML, Allure & JUnit reports'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+
+          - checkout: self
+            persistCredentials: true
+            fetchDepth: 1
+
+          - task: NodeTool@0
+            displayName: 'Setup Node.js $(NODE_VERSION)'
+            inputs:
+              versionSpec: $(NODE_VERSION)
+
+          - task: npmAuthenticate@0
+            displayName: '🔑 Authenticate npm (.npmrc)'
+            inputs:
+              workingDir: '$(Build.SourcesDirectory)'
+
+          - script: npm ci
+            displayName: 'Install workspace dependencies'
+
+          - task: DownloadPipelineArtifact@2
+            displayName: '⬇️  Download raw test data from all jobs'
+            inputs:
+              buildType: 'current'
+              itemPattern: 'raw-data-*/**'
+              targetPath: '$(Pipeline.Workspace)/all-raw'
+
+          - bash: |
+              mkdir -p allure-results
+              find $(Pipeline.Workspace)/all-raw -type f -name "*-result.json" -exec cp {} allure-results/ \;
+              echo "Merged Allure JSON files:"
+              ls -l allure-results | head -10
+            displayName: '📊 Merge Allure JSON results into single folder'
+            condition: always()
+
+          - bash: |
+              npx playwright merge-reports $(Pipeline.Workspace)/all-raw/raw-data-*/blob-report --reporter=html
+            displayName: '🌐 Merge Playwright Blob Reports into single unified HTML report'
+            condition: always()
+
+          - task: PublishPipelineArtifact@1
+            displayName: '📦 Publish merged allure-results artifact'
+            condition: always()
+            inputs:
+              targetPath: '$(Build.SourcesDirectory)/allure-results'
+              artifact: 'allure-results'
+
+          - task: PublishPipelineArtifact@1
+            displayName: '📦 Publish merged playwright-report HTML artifact'
+            condition: always()
+            inputs:
+              targetPath: '$(Build.SourcesDirectory)/playwright-report'
+              artifact: 'playwright-report'
+
+          - task: PublishTestResults@2
+            displayName: '📋 Publish combined JUnit test results'
+            condition: always()
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/test-results/junit/*.xml'
+              searchFolder: '$(Pipeline.Workspace)/all-raw'
+              testRunTitle: 'D365 UI Automation — ${{ parameters.environment }} — Combined'
+              mergeTestResults: true

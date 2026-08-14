@@ -1,0 +1,263 @@
+# =============================================================================
+# .github/workflows/playwright-ci.yml
+#
+# GitHub Actions Workflow for Dynamics 365 Playwright-BDD UI Automation
+# Uses the exact same scripts, Git branch locking, and single-folder report merging.
+# =============================================================================
+
+name: D365 Playwright-BDD CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '🌍 Target Environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - uat
+      filterTags:
+        description: '🏷️ Test Tags (space = AND, comma = OR — e.g. @SalesModule @Smoke)'
+        required: false
+        default: ''
+        type: string
+      browserName:
+        description: '🌐 Target Browser'
+        required: true
+        default: 'chromium'
+        type: choice
+        options:
+          - chromium
+          - firefox
+          - webkit
+          - all
+      playwrightWorkers:
+        description: '🔀 Browser Workers per Job (0 = Auto vCPU calculation)'
+        required: false
+        default: '0'
+        type: string
+      use_auto01:
+        description: '🔑 Enable auto01'
+        type: boolean
+        default: false
+      use_auto02:
+        description: '🔑 Enable auto02'
+        type: boolean
+        default: false
+      use_auto03:
+        description: '🔑 Enable auto03'
+        type: boolean
+        default: false
+      use_auto04:
+        description: '🔑 Enable auto04'
+        type: boolean
+        default: false
+      use_auto05:
+        description: '🔑 Enable auto05'
+        type: boolean
+        default: false
+      use_auto06:
+        description: '🔑 Enable auto06'
+        type: boolean
+        default: false
+      use_auto07:
+        description: '🔑 Enable auto07'
+        type: boolean
+        default: false
+      use_auto08:
+        description: '🔑 Enable auto08'
+        type: boolean
+        default: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # STAGE 1 — Discover & Validate
+  # ---------------------------------------------------------------------------
+  discover:
+    name: 🔍 Discover Personas
+    runs-on: ubuntu-latest
+    outputs:
+      personaMatrix: ${{ steps.discoverStep.outputs.personaMatrix }}
+      selectedAccounts: ${{ steps.accountValidation.outputs.SELECTED_ACCOUNTS }}
+      selectedCount: ${{ steps.accountValidation.outputs.SELECTED_COUNT }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js 25.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25.x'
+          cache: 'npm'
+
+      - name: Install Workspace Dependencies
+        run: npm ci
+
+      - name: Build Monorepo Packages
+        run: npm run build:packages
+
+      - name: Validate Selected Accounts
+        id: accountValidation
+        run: |
+          SELECTED=""
+          if [ "${{ inputs.use_auto01 }}" = "true" ]; then SELECTED="${SELECTED},auto01"; fi
+          if [ "${{ inputs.use_auto02 }}" = "true" ]; then SELECTED="${SELECTED},auto02"; fi
+          if [ "${{ inputs.use_auto03 }}" = "true" ]; then SELECTED="${SELECTED},auto03"; fi
+          if [ "${{ inputs.use_auto04 }}" = "true" ]; then SELECTED="${SELECTED},auto04"; fi
+          if [ "${{ inputs.use_auto05 }}" = "true" ]; then SELECTED="${SELECTED},auto05"; fi
+          if [ "${{ inputs.use_auto06 }}" = "true" ]; then SELECTED="${SELECTED},auto06"; fi
+          if [ "${{ inputs.use_auto07 }}" = "true" ]; then SELECTED="${SELECTED},auto07"; fi
+          if [ "${{ inputs.use_auto08 }}" = "true" ]; then SELECTED="${SELECTED},auto08"; fi
+
+          SELECTED="${SELECTED#,}"
+
+          if [ -z "$SELECTED" ]; then
+            echo "::error::No service accounts selected! You must enable at least 1 account toggle."
+            exit 1
+          fi
+
+          IFS=',' read -ra ADDR <<< "$SELECTED"
+          COUNT=${#ADDR[@]}
+
+          echo "SELECTED_ACCOUNTS=$SELECTED" >> $GITHUB_OUTPUT
+          echo "SELECTED_COUNT=$COUNT" >> $GITHUB_OUTPUT
+
+      - name: Discover Personas & Build Matrix
+        id: discoverStep
+        env:
+          FILTER_TAGS: ${{ inputs.filterTags }}
+        run: |
+          npx bddgen
+          npx playwright test --list --reporter=json > test-manifest.json
+          node .ci/scripts/parse-test-list.js
+
+  # ---------------------------------------------------------------------------
+  # STAGE 2 — Test Execution (Dynamic Matrix)
+  # ---------------------------------------------------------------------------
+  test-execution:
+    name: 🧪 Persona @persona:${{ matrix.PERSONA }}
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover.outputs.personaMatrix) }}
+      max-parallel: ${{ fromJson(needs.discover.outputs.selectedCount) }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js 25.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25.x'
+          cache: 'npm'
+
+      - name: Install Workspace Dependencies
+        run: npm ci
+
+      - name: Build Monorepo Packages
+        run: npm run build:packages
+
+      - name: Install Playwright Browsers
+        run: |
+          if [ "${{ inputs.browserName }}" = "all" ]; then
+            npx playwright install --with-deps
+          else
+            npx playwright install ${{ inputs.browserName }} --with-deps
+          fi
+
+      - name: Claim Exclusive Git Lock Branch
+        id: claimAccount
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          BUILD_BUILDID: ${{ github.run_id }}
+          AVAILABLE_ACCOUNTS: ${{ needs.discover.outputs.selectedAccounts }}
+          SERVICE_ACCOUNT_CATALOG_JSON: ${{ secrets.SERVICE_ACCOUNT_CATALOG_JSON }}
+        run: bash .ci/scripts/claim-account.sh
+
+      - name: Generate BDD Specs
+        run: npm run bddgen --workspaces --if-present -- --tags "@persona:${{ matrix.PERSONA }}"
+
+      - name: Run Playwright Tests
+        env:
+          TEST_USERNAME: ${{ env.TEST_USERNAME }}
+          TEST_PASSWORD: ${{ env.TEST_PASSWORD }}
+          DYNAMICS_URL: ${{ secrets[format('DYNAMICS_URL_{0}', inputs.environment)] }}
+          DYNAMICS_API_URL: ${{ secrets[format('DYNAMICS_API_URL_{0}', inputs.environment)] }}
+          BROWSER_NAME: ${{ inputs.browserName }}
+          PLAYWRIGHT_WORKERS: ${{ inputs.playwrightWorkers }}
+          CI: 'true'
+        run: npm test --workspaces --if-present -- --grep "@persona:${{ matrix.PERSONA }}"
+
+      - name: Upload Raw Test Data Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-data-${{ matrix.PERSONA }}
+          path: .
+          retention-days: 7
+
+      - name: Release Git Lock Branch
+        if: always()
+        env:
+          LOCK_REF: ${{ env.LOCK_REF }}
+          ASSIGNED_ACCOUNT: ${{ env.ASSIGNED_ACCOUNT }}
+        run: bash .ci/scripts/release-account.sh
+
+  # ---------------------------------------------------------------------------
+  # STAGE 3 — Merged Reporting
+  # ---------------------------------------------------------------------------
+  report:
+    name: 📊 Merged Report
+    needs: test-execution
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 25.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25.x'
+          cache: 'npm'
+
+      - name: Install Workspace Dependencies
+        run: npm ci
+
+      - name: Download All Raw Data Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-raw
+
+      - name: Merge Allure JSON Results
+        if: always()
+        run: |
+          mkdir -p allure-results
+          find all-raw -type f -name "*-result.json" -exec cp {} allure-results/ \;
+
+      - name: Merge Playwright Blob Reports into Single HTML Report
+        if: always()
+        run: npx playwright merge-reports all-raw/raw-data-*/blob-report --reporter=html
+
+      - name: Upload Merged Playwright HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+
+      - name: Upload Merged Allure Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results
