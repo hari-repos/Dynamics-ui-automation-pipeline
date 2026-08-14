@@ -33,7 +33,9 @@ function resolveWorkerCount(): number {
 
   const vCpus = os.cpus().length;
   const autoWorkers = Math.max(2, Math.floor(vCpus * 1.5));
-  console.log(`⚡ [Auto Workers] Host machine has ${vCpus} vCPU(s) → Spawning ${autoWorkers} parallel browser workers.`);
+  if (process.env.CI !== 'true') {
+    process.stderr.write(`⚡ [Auto Workers] Host machine has ${vCpus} vCPU(s) → Spawning ${autoWorkers} parallel browser workers.\n`);
+  }
   return autoWorkers;
 }
 
@@ -75,7 +77,7 @@ export function createBaseConfig(
   const baseURL = process.env.DYNAMICS_URL;
 
   return defineConfig({
-    testDir: bddConfig.outputDir,
+    testDir: bddConfig,
     fullyParallel: true,
     workers: resolveWorkerCount(),
     timeout: overrides.testTimeout ?? 90_000,

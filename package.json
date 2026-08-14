@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "build:packages": "npm run build --workspaces --if-present",
-    "discover": "npx bddgen && npx playwright test --list --reporter=json > test-manifest.json && node .ci/scripts/parse-test-list.js",
+    "discover": "npm run bddgen --workspaces --if-present && node .ci/scripts/parse-test-list.js",
     "test": "playwright test",
     "bddgen": "bddgen"
   },
