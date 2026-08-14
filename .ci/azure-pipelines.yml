@@ -1,5 +1,5 @@
 # =============================================================================
-# .azure-pipelines/azure-pipelines.yml
+# .ci/azure-pipelines.yml
 #
 # Dynamics 365 UI Automation Pipeline — Persona-Aware Parallel Execution
 # Zero External Dependencies (Git Branch Locking in Azure Repos)
@@ -152,7 +152,11 @@ stages:
           - task: npmAuthenticate@0
             displayName: '🔑 Authenticate npm (.npmrc)'
             inputs:
-              workingDir: '$(Build.SourcesDirectory)'
+              workingFile: '$(Build.SourcesDirectory)/.npmrc'
+
+          # Cross-platform dynamic npm cache path resolution (Linux, Windows, macOS)
+          - script: echo "##vso[task.setvariable variable=NPM_CACHE_DIR]$(npm config get cache)"
+            displayName: '🔍 Resolve OS-specific npm cache path'
 
           - task: Cache@2
             displayName: '📦 Cache npm dependencies'
@@ -160,7 +164,7 @@ stages:
               key: 'npm | "$(Agent.OS)" | package-lock.json'
               restoreKeys: |
                 npm | "$(Agent.OS)"
-              path: '$(HOME)/.npm'
+              path: '$(NPM_CACHE_DIR)'
 
           - script: npm ci
             displayName: 'Install workspace dependencies'
@@ -250,7 +254,10 @@ stages:
           - task: npmAuthenticate@0
             displayName: '🔑 Authenticate npm (.npmrc)'
             inputs:
-              workingDir: '$(Build.SourcesDirectory)'
+              workingFile: '$(Build.SourcesDirectory)/.npmrc'
+
+          - script: echo "##vso[task.setvariable variable=NPM_CACHE_DIR]$(npm config get cache)"
+            displayName: '🔍 Resolve OS-specific npm cache path'
 
           - task: Cache@2
             displayName: '📦 Cache npm dependencies'
@@ -258,7 +265,7 @@ stages:
               key: 'npm | "$(Agent.OS)" | package-lock.json'
               restoreKeys: |
                 npm | "$(Agent.OS)"
-              path: '$(HOME)/.npm'
+              path: '$(NPM_CACHE_DIR)'
 
           - script: npm ci
             displayName: 'Install workspace dependencies'
@@ -351,7 +358,18 @@ stages:
           - task: npmAuthenticate@0
             displayName: '🔑 Authenticate npm (.npmrc)'
             inputs:
-              workingDir: '$(Build.SourcesDirectory)'
+              workingFile: '$(Build.SourcesDirectory)/.npmrc'
+
+          - script: echo "##vso[task.setvariable variable=NPM_CACHE_DIR]$(npm config get cache)"
+            displayName: '🔍 Resolve OS-specific npm cache path'
+
+          - task: Cache@2
+            displayName: '📦 Cache npm dependencies'
+            inputs:
+              key: 'npm | "$(Agent.OS)" | package-lock.json'
+              restoreKeys: |
+                npm | "$(Agent.OS)"
+              path: '$(NPM_CACHE_DIR)'
 
           - script: npm ci
             displayName: 'Install workspace dependencies'
