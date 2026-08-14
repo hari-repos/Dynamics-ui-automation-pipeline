@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 import { defineBddConfig }       from 'playwright-bdd';
 import os                          from 'os';
+import fs                          from 'fs';
+import path                        from 'path';
 
 /**
  * playwright.config.base.ts
@@ -8,15 +10,48 @@ import os                          from 'os';
  * Shared base Playwright configuration for Dynamics 365 app projects in the monorepo.
  * 
  * Features:
+ *   - Automatic per-app runConfig.json loading for customizable app defaults
  *   - Auto-worker calculation based on agent vCPU capacity (vCPUs * 1.5)
  *   - Dynamic browser resolution (chromium, firefox, webkit, all)
  *   - Reporters for JUnit XML, Blob Report (for Stage 3 merging), Allure, and terminal list
  */
 
+export interface RunConfigJson {
+  headless?: boolean;
+  retries?: number;
+  testTimeout?: number;
+  expectTimeout?: number;
+  actionTimeout?: number;
+  navigationTimeout?: number;
+}
+
 export interface AppConfigOverrides {
   additionalProjects?: ReturnType<typeof defineConfig>['projects'];
   testTimeout?: number;
+  expectTimeout?: number;
+  retries?: number;
   useOptions?: Parameters<typeof defineConfig>[0]['use'];
+}
+
+/**
+ * Reads runConfig.json from the active app project directory if present.
+ */
+function loadRunConfig(): RunConfigJson {
+  const configPath = path.join(process.cwd(), 'runConfig.json');
+  if (fs.existsSync(configPath)) {
+    try {
+      const raw = fs.readFileSync(configPath, 'utf8');
+      if (process.env.CI !== 'true') {
+        process.stderr.write(`⚙️  Loaded app runConfig.json from ${configPath}\n`);
+      }
+      return JSON.parse(raw);
+    } catch (e) {
+      if (process.env.CI !== 'true') {
+        process.stderr.write(`⚠️ Failed to parse runConfig.json at ${configPath}, using default settings.\n`);
+      }
+    }
+  }
+  return {};
 }
 
 /**
@@ -75,14 +110,17 @@ export function createBaseConfig(
 ) {
   const isCI = process.env.CI === 'true';
   const baseURL = process.env.DYNAMICS_URL;
+  const runConfig = loadRunConfig();
 
   return defineConfig({
     testDir: bddConfig,
     fullyParallel: true,
     workers: resolveWorkerCount(),
-    timeout: overrides.testTimeout ?? 90_000,
-    expect: { timeout: 10_000 },
-    retries: isCI ? 1 : 0,
+
+    // Priority: App override -> runConfig.json -> Default (90s)
+    timeout: overrides.testTimeout ?? runConfig.testTimeout ?? 90_000,
+    expect: { timeout: overrides.expectTimeout ?? runConfig.expectTimeout ?? 10_000 },
+    retries: overrides.retries ?? runConfig.retries ?? (isCI ? 1 : 0),
 
     reporter: [
       ['list'],
@@ -93,12 +131,12 @@ export function createBaseConfig(
 
     use: {
       baseURL,
-      headless: true,
+      headless: overrides.useOptions?.headless ?? runConfig.headless ?? true,
       screenshot: 'only-on-failure',
       video: 'on-first-retry',
       trace: 'on-first-retry',
-      actionTimeout: 15_000,
-      navigationTimeout: 30_000,
+      actionTimeout: overrides.useOptions?.actionTimeout ?? runConfig.actionTimeout ?? 15_000,
+      navigationTimeout: overrides.useOptions?.navigationTimeout ?? runConfig.navigationTimeout ?? 30_000,
       ...overrides.useOptions,
     },
 

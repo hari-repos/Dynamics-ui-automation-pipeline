@@ -1,0 +1,8 @@
+{
+  "headless": true,
+  "retries": 1,
+  "testTimeout": 90000,
+  "expectTimeout": 10000,
+  "actionTimeout": 15000,
+  "navigationTimeout": 30000
+}
