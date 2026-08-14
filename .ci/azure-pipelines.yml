@@ -18,9 +18,9 @@ parameters:
       - uat
 
   - name: filterTags
-    displayName: '🏷️  Test Tags (space = AND, comma = OR — e.g. @SalesModule @Smoke)'
+    displayName: '🏷️  Test Tags (default: all — e.g. @SalesModule @Smoke)'
     type: string
-    default: ''
+    default: 'all'
 
   - name: browserName
     displayName: '🌐 Target Browser'
@@ -180,22 +180,38 @@ stages:
 
           - bash: |
               SELECTED=""
-              if [ "${{ parameters.use_auto01 }}" = "True" ]; then SELECTED="${SELECTED},auto01"; fi
-              if [ "${{ parameters.use_auto02 }}" = "True" ]; then SELECTED="${SELECTED},auto02"; fi
-              if [ "${{ parameters.use_auto03 }}" = "True" ]; then SELECTED="${SELECTED},auto03"; fi
-              if [ "${{ parameters.use_auto04 }}" = "True" ]; then SELECTED="${SELECTED},auto04"; fi
-              if [ "${{ parameters.use_auto05 }}" = "True" ]; then SELECTED="${SELECTED},auto05"; fi
-              if [ "${{ parameters.use_auto06 }}" = "True" ]; then SELECTED="${SELECTED},auto06"; fi
-              if [ "${{ parameters.use_auto07 }}" = "True" ]; then SELECTED="${SELECTED},auto07"; fi
-              if [ "${{ parameters.use_auto08 }}" = "True" ]; then SELECTED="${SELECTED},auto08"; fi
-              if [ "${{ parameters.use_auto09 }}" = "True" ]; then SELECTED="${SELECTED},auto09"; fi
-              if [ "${{ parameters.use_auto10 }}" = "True" ]; then SELECTED="${SELECTED},auto10"; fi
-              if [ "${{ parameters.use_auto11 }}" = "True" ]; then SELECTED="${SELECTED},auto11"; fi
-              if [ "${{ parameters.use_auto12 }}" = "True" ]; then SELECTED="${SELECTED},auto12"; fi
-              if [ "${{ parameters.use_auto13 }}" = "True" ]; then SELECTED="${SELECTED},auto13"; fi
-              if [ "${{ parameters.use_auto14 }}" = "True" ]; then SELECTED="${SELECTED},auto14"; fi
-              if [ "${{ parameters.use_auto15 }}" = "True" ]; then SELECTED="${SELECTED},auto15"; fi
-              if [ "${{ parameters.use_auto16 }}" = "True" ]; then SELECTED="${SELECTED},auto16"; fi
+              ${{ if eq(parameters.use_auto01, true) }}:
+                SELECTED="${SELECTED},auto01"
+              ${{ if eq(parameters.use_auto02, true) }}:
+                SELECTED="${SELECTED},auto02"
+              ${{ if eq(parameters.use_auto03, true) }}:
+                SELECTED="${SELECTED},auto03"
+              ${{ if eq(parameters.use_auto04, true) }}:
+                SELECTED="${SELECTED},auto04"
+              ${{ if eq(parameters.use_auto05, true) }}:
+                SELECTED="${SELECTED},auto05"
+              ${{ if eq(parameters.use_auto06, true) }}:
+                SELECTED="${SELECTED},auto06"
+              ${{ if eq(parameters.use_auto07, true) }}:
+                SELECTED="${SELECTED},auto07"
+              ${{ if eq(parameters.use_auto08, true) }}:
+                SELECTED="${SELECTED},auto08"
+              ${{ if eq(parameters.use_auto09, true) }}:
+                SELECTED="${SELECTED},auto09"
+              ${{ if eq(parameters.use_auto10, true) }}:
+                SELECTED="${SELECTED},auto10"
+              ${{ if eq(parameters.use_auto11, true) }}:
+                SELECTED="${SELECTED},auto11"
+              ${{ if eq(parameters.use_auto12, true) }}:
+                SELECTED="${SELECTED},auto12"
+              ${{ if eq(parameters.use_auto13, true) }}:
+                SELECTED="${SELECTED},auto13"
+              ${{ if eq(parameters.use_auto14, true) }}:
+                SELECTED="${SELECTED},auto14"
+              ${{ if eq(parameters.use_auto15, true) }}:
+                SELECTED="${SELECTED},auto15"
+              ${{ if eq(parameters.use_auto16, true) }}:
+                SELECTED="${SELECTED},auto16"
               
               SELECTED="${SELECTED#,}"
 
@@ -274,14 +290,14 @@ stages:
             displayName: '⚙️  Build internal monorepo packages'
             workingDirectory: '$(Build.SourcesDirectory)'
 
-          - script: |
-              if [ "${{ parameters.browserName }}" = "all" ]; then
-                npx playwright install --with-deps
-              else
-                npx playwright install ${{ parameters.browserName }} --with-deps
-              fi
-            displayName: '🌐 Install Playwright browser binary (${{ parameters.browserName }})'
-            workingDirectory: '$(Build.SourcesDirectory)'
+          - ${{ if eq(parameters.browserName, 'all') }}:
+            - script: npx playwright install --with-deps
+              displayName: '🌐 Install all Playwright browser binaries'
+              workingDirectory: '$(Build.SourcesDirectory)'
+          - ${{ if ne(parameters.browserName, 'all') }}:
+            - script: npx playwright install ${{ parameters.browserName }} --with-deps
+              displayName: '🌐 Install Playwright browser binary (${{ parameters.browserName }})'
+              workingDirectory: '$(Build.SourcesDirectory)'
 
           - bash: bash $(SCRIPTS_DIR)/claim-account.sh
             displayName: '🔑 Claim exclusive service account for slot'
@@ -313,7 +329,6 @@ stages:
               PLAYWRIGHT_WORKERS: '${{ parameters.playwrightWorkers }}'
               CI: 'true'
 
-          # Publish JUnit XML for this persona job directly to ADO Tests tab
           - task: PublishTestResults@2
             displayName: '📋 Publish JUnit XML test results'
             condition: always()
@@ -324,11 +339,19 @@ stages:
               testRunTitle: '@persona:$(PERSONA) — ${{ parameters.environment }}'
               mergeTestResults: true
 
+          - bash: |
+              mkdir -p $(Build.ArtifactStagingDirectory)/raw-data
+              find . -type d -name "blob-report" -exec cp -r {} $(Build.ArtifactStagingDirectory)/raw-data/ \; 2>/dev/null || true
+              find . -type d -name "allure-results" -exec cp -r {} $(Build.ArtifactStagingDirectory)/raw-data/ \; 2>/dev/null || true
+              find . -type d -name "test-results" -exec cp -r {} $(Build.ArtifactStagingDirectory)/raw-data/ \; 2>/dev/null || true
+            displayName: '📁 Package lightweight raw test data (blob-report & allure-results)'
+            condition: always()
+
           - task: PublishPipelineArtifact@1
             displayName: '📦 Upload raw test data artifact'
             condition: always()
             inputs:
-              targetPath: '$(Build.SourcesDirectory)'
+              targetPath: '$(Build.ArtifactStagingDirectory)/raw-data'
               artifact: 'raw-data-$(PERSONA)'
 
           - bash: bash $(SCRIPTS_DIR)/release-account.sh

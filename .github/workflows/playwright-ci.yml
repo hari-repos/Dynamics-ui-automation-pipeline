@@ -20,9 +20,9 @@ on:
           - staging
           - uat
       filterTags:
-        description: '🏷️ Test Tags (space = AND, comma = OR — e.g. @SalesModule @Smoke)'
+        description: '🏷️ Test Tags (default: all — e.g. @SalesModule @Smoke)'
         required: false
-        default: ''
+        default: 'all'
         type: string
       browserName:
         description: '🌐 Target Browser'
@@ -203,12 +203,20 @@ jobs:
           CI: 'true'
         run: npm test --workspaces --if-present -- --grep "@persona:${{ matrix.PERSONA }}"
 
+      - name: Package Lightweight Raw Test Data
+        if: always()
+        run: |
+          mkdir -p raw-data-pkg
+          find . -type d -name "blob-report" -exec cp -r {} raw-data-pkg/ \; 2>/dev/null || true
+          find . -type d -name "allure-results" -exec cp -r {} raw-data-pkg/ \; 2>/dev/null || true
+          find . -type d -name "test-results" -exec cp -r {} raw-data-pkg/ \; 2>/dev/null || true
+
       - name: Upload Raw Test Data Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: raw-data-${{ matrix.PERSONA }}
-          path: .
+          path: raw-data-pkg
           retention-days: 7
 
       - name: Release Git Lock Branch
