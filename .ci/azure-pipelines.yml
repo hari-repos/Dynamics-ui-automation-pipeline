@@ -343,8 +343,10 @@ stages:
   # ---------------------------------------------------------------------------
   - stage: Report
     displayName: '📊 Merged Report'
-    dependsOn: TestExecution
-    condition: always()
+    dependsOn:
+      - Discover
+      - TestExecution
+    condition: and(succeeded('Discover'), in(dependencies.TestExecution.result, 'Succeeded', 'SucceededWithIssues', 'Failed'))
     jobs:
       - job: PublishMergedReport
         displayName: 'Merge & publish single-folder HTML & Allure reports'
