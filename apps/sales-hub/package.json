@@ -11,6 +11,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.42.0",
-    "playwright-bdd": "^7.0.0"
+    "playwright-bdd": "^9.2.0"
   }
 }
