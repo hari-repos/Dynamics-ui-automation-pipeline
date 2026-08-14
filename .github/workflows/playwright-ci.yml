@@ -190,8 +190,14 @@ jobs:
         env:
           TEST_USERNAME: ${{ env.TEST_USERNAME }}
           TEST_PASSWORD: ${{ env.TEST_PASSWORD }}
-          DYNAMICS_URL: ${{ secrets[format('DYNAMICS_URL_{0}', inputs.environment)] }}
-          DYNAMICS_API_URL: ${{ secrets[format('DYNAMICS_API_URL_{0}', inputs.environment)] }}
+          BASE_URL: ${{ secrets[format('BASE_URL_{0}', uppercase(inputs.environment))] }}
+          CRM_API_URL: ${{ secrets[format('CRM_API_URL_{0}', uppercase(inputs.environment))] }}
+          POWERAPP_PCIPAL_BASEURL: ${{ secrets[format('POWERAPP_PCIPAL_BASEURL_{0}', uppercase(inputs.environment))] }}
+          PCIPAL_API_URL: ${{ secrets[format('PCIPAL_API_URL_{0}', uppercase(inputs.environment))] }}
+          TENANT_ID: ${{ secrets.TENANT_ID }}
+          DMS_CLIENT_ID: ${{ secrets.DMS_CLIENT_ID }}
+          CRM_ADMIN_USERNAME: ${{ secrets.CRM_ADMIN_USERNAME }}
+          CRM_ADMIN_PASSWORD: ${{ secrets.CRM_ADMIN_PASSWORD }}
           BROWSER_NAME: ${{ inputs.browserName }}
           PLAYWRIGHT_WORKERS: ${{ inputs.playwrightWorkers }}
           CI: 'true'
