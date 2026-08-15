@@ -67,11 +67,16 @@ while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
     
     # Attempt atomic git branch reference creation in Azure Repos
     PUSH_OUTPUT=$(git push origin "HEAD:${LOCK_REF}" 2>&1) && rc=0 || rc=$?
-    if [ $rc -eq 0 ]; then
+    
+    # IMPORTANT FIX: Git returns exit code 0 when creating a NEW branch, BUT ALSO returns 0
+    # with "Everything up-to-date" if the branch ALREADY exists!
+    # We MUST check that PUSH_OUTPUT does NOT contain "Everything up-to-date".
+    if [ $rc -eq 0 ] && ! echo "$PUSH_OUTPUT" | grep -qi "Everything up-to-date"; then
       echo "------------------------------------------------------------"
       echo "✅ Lock Acquired Successfully!"
-      echo " Account Key : $ACCOUNT_KEY"
+      echo " Account Key   : $ACCOUNT_KEY"
       echo " Lock Reference: $LOCK_REF"
+      echo " Output        : $PUSH_OUTPUT"
       echo "------------------------------------------------------------"
 
       # Parse credentials for claimed account using jq
@@ -91,9 +96,9 @@ while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
 
       exit 0
     else
-      # If the error contains "rejected", "already exists", "non-fast-forward" or "conflict", it's a lock collision
-      if echo "$PUSH_OUTPUT" | grep -qiE "rejected|already exists|non-fast-forward|conflict"; then
-        echo " ⏳ Account '$ACCOUNT_KEY' is currently locked by another job. Trying next..."
+      # If output contains "Everything up-to-date", "rejected", "already exists", "non-fast-forward" or "conflict", it's locked by another job!
+      if echo "$PUSH_OUTPUT" | grep -qiE "Everything up-to-date|rejected|already exists|non-fast-forward|conflict"; then
+        echo " ⏳ Account '$ACCOUNT_KEY' is currently locked by another job (Reason: branch already exists / pushed). Trying next..."
       else
         echo "##[error] Git push failed with an unexpected error during lock acquisition:"
         echo "$PUSH_OUTPUT"
