@@ -249,6 +249,8 @@ stages:
         cancelTimeoutInMinutes: 5
         pool:
           vmImage: ubuntu-latest
+        variables:
+          AVAILABLE_ACCOUNTS: $[ stageDependencies.Discover.DiscoverPersonas.outputs['accountSelectionStep.SELECTED_ACCOUNTS'] ]
 
         strategy:
           matrix: $[ stageDependencies.Discover.DiscoverPersonas.outputs['discoverStep.personaMatrix'] ]
@@ -304,7 +306,7 @@ stages:
             env:
               ENVIRONMENT: '${{ parameters.environment }}'
               BUILD_BUILDID: '$(Build.BuildId)'
-              AVAILABLE_ACCOUNTS: '$[ stageDependencies.Discover.DiscoverPersonas.outputs["accountSelectionStep.SELECTED_ACCOUNTS"] ]'
+              AVAILABLE_ACCOUNTS: '$(AVAILABLE_ACCOUNTS)'
               SERVICE_ACCOUNT_CATALOG_JSON: $(SERVICE_ACCOUNT_CATALOG_JSON)
 
           - script: npm run bddgen --workspaces --if-present -- --tags "@persona:$(PERSONA)"

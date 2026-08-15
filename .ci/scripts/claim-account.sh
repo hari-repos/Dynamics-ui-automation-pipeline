@@ -66,7 +66,8 @@ while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
     echo "Attempting lock acquisition for account '$ACCOUNT_KEY' (Ref: $LOCK_REF)..."
     
     # Attempt atomic git branch reference creation in Azure Repos
-    if git push origin "HEAD:${LOCK_REF}" >/dev/null 2>&1; then
+    PUSH_OUTPUT=$(git push origin "HEAD:${LOCK_REF}" 2>&1) && rc=0 || rc=$?
+    if [ $rc -eq 0 ]; then
       echo "------------------------------------------------------------"
       echo "✅ Lock Acquired Successfully!"
       echo " Account Key : $ACCOUNT_KEY"
@@ -90,7 +91,14 @@ while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
 
       exit 0
     else
-      echo " ⏳ Account '$ACCOUNT_KEY' is currently locked by another job. Trying next..."
+      # If the error contains "rejected", "already exists", "non-fast-forward" or "conflict", it's a lock collision
+      if echo "$PUSH_OUTPUT" | grep -qiE "rejected|already exists|non-fast-forward|conflict"; then
+        echo " ⏳ Account '$ACCOUNT_KEY' is currently locked by another job. Trying next..."
+      else
+        echo "##[error] Git push failed with an unexpected error during lock acquisition:"
+        echo "$PUSH_OUTPUT"
+        exit 1
+      fi
     fi
   done
 
