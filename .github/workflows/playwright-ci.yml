@@ -224,6 +224,7 @@ jobs:
         if: always()
         run: |
           mkdir -p blob-raw-pkg
+          find . -type d -path "*/reports/run-*/blob-report" -exec cp -r {}/. blob-raw-pkg/ \; 2>/dev/null || true
           find . -type d -path "*/reports/run-*/test-results" -exec cp -r {}/. blob-raw-pkg/ \; 2>/dev/null || true
           find . -type d -name "blob-report" -exec cp -r {}/. blob-raw-pkg/ \; 2>/dev/null || true
 
