@@ -340,13 +340,13 @@ stages:
             displayName: '📁 Package raw test telemetry for $(PERSONA)'
             condition: always()
 
-          # Store raw telemetry in pipeline internal cache (Zero Summary UI Artifacts!)
-          - task: Cache@2
-            displayName: '💾 Store raw telemetry in internal cache'
+          # Publish raw telemetry as Pipeline Artifacts
+          - task: PublishPipelineArtifact@1
+            displayName: '📤 Publish raw test telemetry for $(PERSONA)'
             condition: always()
             inputs:
-              key: 'telemetry | "$(Build.BuildId)" | "$(PERSONA)"'
-              path: '$(Build.ArtifactStagingDirectory)/raw-telemetry/$(PERSONA)'
+              targetPath: '$(Build.ArtifactStagingDirectory)/raw-telemetry/$(PERSONA)'
+              artifact: 'raw-telemetry-$(PERSONA)'
 
           - bash: bash $(SCRIPTS_DIR)/release-account.sh
             displayName: '🔑 Release service account Git lock'
@@ -399,14 +399,11 @@ stages:
           - script: npm ci
             displayName: 'Install workspace dependencies'
 
-          # Restore all raw persona telemetry from internal pipeline cache
-          - task: Cache@2
-            displayName: '⬇️ Restore raw telemetry from internal cache'
+          # Download all raw persona telemetry published from the parallel execution jobs
+          - task: DownloadPipelineArtifact@2
+            displayName: '⬇️ Download all raw test telemetry'
             condition: always()
             inputs:
-              key: 'telemetry | "$(Build.BuildId)" | merged'
-              restoreKeys: |
-                telemetry | "$(Build.BuildId)"
               path: '$(Pipeline.Workspace)/raw-telemetry'
 
           # 1. Allure Results Direct Merging & Final Publishing
