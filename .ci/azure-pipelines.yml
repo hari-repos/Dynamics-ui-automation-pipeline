@@ -330,34 +330,23 @@ stages:
               testRunTitle: '@persona:$(PERSONA) — ${{ parameters.environment }}'
               mergeTestResults: false
 
-          # Stage raw Allure telemetry (from any project's reports/run-*/allure-results/)
+          # Stage raw Allure & Playwright Blob files into structured local staging directory
           - bash: |
-              mkdir -p $(Build.ArtifactStagingDirectory)/allure-raw
-              find . -type d -path "*/reports/run-*/allure-results" -exec cp -r {}/. $(Build.ArtifactStagingDirectory)/allure-raw/ \; 2>/dev/null || true
-            displayName: '📁 Stage raw Allure files'
+              STAGING_DIR="$(Build.ArtifactStagingDirectory)/raw-telemetry/$(PERSONA)"
+              mkdir -p "$STAGING_DIR/allure-results" "$STAGING_DIR/blob-report"
+              find . -type d -path "*/reports/run-*/allure-results" -exec cp -r {}/. "$STAGING_DIR/allure-results/" \; 2>/dev/null || true
+              find . -type d -path "*/reports/run-*/blob-report" -exec cp -r {}/. "$STAGING_DIR/blob-report/" \; 2>/dev/null || true
+              find . -type d -path "*/reports/run-*/test-results" -exec cp -r {}/. "$STAGING_DIR/blob-report/" \; 2>/dev/null || true
+            displayName: '📁 Package raw test telemetry for $(PERSONA)'
             condition: always()
 
-          - task: PublishPipelineArtifact@1
-            displayName: '📦 Stage raw Allure telemetry'
+          # Store raw telemetry in pipeline internal cache (Zero Summary UI Artifacts!)
+          - task: Cache@2
+            displayName: '💾 Store raw telemetry in internal cache'
             condition: always()
             inputs:
-              targetPath: '$(Build.ArtifactStagingDirectory)/allure-raw'
-              artifact: 'allure-raw-$(PERSONA)'
-
-          # Stage raw Playwright Blob telemetry (from any project's reports/run-*/test-results/ or blob-report/)
-          - bash: |
-              mkdir -p $(Build.ArtifactStagingDirectory)/blob-raw
-              find . -type d -path "*/reports/run-*/blob-report" -exec cp -r {}/. $(Build.ArtifactStagingDirectory)/blob-raw/ \; 2>/dev/null || true
-              find . -type d -name "blob-report" -exec cp -r {}/. $(Build.ArtifactStagingDirectory)/blob-raw/ \; 2>/dev/null || true
-            displayName: '📁 Stage raw Playwright Blob report files'
-            condition: always()
-
-          - task: PublishPipelineArtifact@1
-            displayName: '📦 Stage raw Playwright Blob telemetry'
-            condition: always()
-            inputs:
-              targetPath: '$(Build.ArtifactStagingDirectory)/blob-raw'
-              artifact: 'blob-raw-$(PERSONA)'
+              key: 'telemetry | "$(Build.BuildId)" | "$(PERSONA)"'
+              path: '$(Build.ArtifactStagingDirectory)/raw-telemetry/$(PERSONA)'
 
           - bash: bash $(SCRIPTS_DIR)/release-account.sh
             displayName: '🔑 Release service account Git lock'
@@ -410,17 +399,20 @@ stages:
           - script: npm ci
             displayName: 'Install workspace dependencies'
 
-          # 1. Allure Results Merging & Final Publishing
-          - task: DownloadPipelineArtifact@2
-            displayName: '⬇️  Download raw Allure telemetry'
+          # Restore all raw persona telemetry from internal pipeline cache
+          - task: Cache@2
+            displayName: '⬇️ Restore raw telemetry from internal cache'
+            condition: always()
             inputs:
-              buildType: 'current'
-              itemPattern: 'allure-raw-*/**'
-              targetPath: '$(Pipeline.Workspace)/allure-raw-all'
+              key: 'telemetry | "$(Build.BuildId)" | merged'
+              restoreKeys: |
+                telemetry | "$(Build.BuildId)"
+              path: '$(Pipeline.Workspace)/raw-telemetry'
 
+          # 1. Allure Results Direct Merging & Final Publishing
           - bash: |
               mkdir -p $(Build.SourcesDirectory)/allure-results
-              find $(Pipeline.Workspace)/allure-raw-all -type f -exec cp {} $(Build.SourcesDirectory)/allure-results/ \;
+              cp -r $(Pipeline.Workspace)/raw-telemetry/*/allure-results/. $(Build.SourcesDirectory)/allure-results/ 2>/dev/null || true
               echo "Merged Allure JSON files in allure-results:"
               ls -la $(Build.SourcesDirectory)/allure-results | head -15
             displayName: '📊 Merge Allure JSON results into allure-results folder'
@@ -433,17 +425,10 @@ stages:
               targetPath: '$(Build.SourcesDirectory)/allure-results'
               artifact: 'allure-results'
 
-          # 2. Playwright HTML Report Merging & Final Publishing
-          - task: DownloadPipelineArtifact@2
-            displayName: '⬇️  Download raw Playwright Blob telemetry'
-            inputs:
-              buildType: 'current'
-              itemPattern: 'blob-raw-*/**'
-              targetPath: '$(Pipeline.Workspace)/blob-raw-all'
-
+          # 2. Playwright HTML Report Direct Merging & Final Publishing
           - bash: |
               mkdir -p $(Build.SourcesDirectory)/blob-report-merged
-              find $(Pipeline.Workspace)/blob-raw-all -type f -exec cp {} $(Build.SourcesDirectory)/blob-report-merged/ \;
+              cp -r $(Pipeline.Workspace)/raw-telemetry/*/blob-report/. $(Build.SourcesDirectory)/blob-report-merged/ 2>/dev/null || true
               npx playwright merge-reports $(Build.SourcesDirectory)/blob-report-merged --reporter=html
             displayName: '🌐 Merge Playwright Blob Reports into playwright-report HTML'
             condition: always()
@@ -454,31 +439,3 @@ stages:
             inputs:
               targetPath: '$(Build.SourcesDirectory)/playwright-report'
               artifact: 'playwright-report'
-
-          # 3. Clean up intermediate raw staging artifacts via ADO API so only final merged artifacts remain
-          - bash: |
-              token="$(System.AccessToken)"
-              collectionUri="$(System.TeamFoundationCollectionUri)"
-              project="$(System.TeamProject)"
-              buildId="$(Build.BuildId)"
-
-              if [ -n "$token" ] && [ -n "$collectionUri" ] && [ -n "$project" ]; then
-                echo "Fetching pipeline artifacts for Build #$buildId..."
-                apiUrl="${collectionUri.replace(/\/$/, '')}/${project}/_apis/build/builds/${buildId}/artifacts?api-version=7.0"
-                artifactsJson=$(curl -s -H "Authorization: Bearer $token" "$apiUrl")
-
-                echo "$artifactsJson" | jq -r '.value[]? | select(.name | startswith("allure-raw-") or startswith("blob-raw-")) | .name' | while read -r artName; do
-                  if [ -n "$artName" ]; then
-                    echo "🧹 Deleting intermediate staging artifact: $artName"
-                    delUrl="${collectionUri.replace(/\/$/, '')}/${project}/_apis/build/builds/${buildId}/artifacts?artifactName=${artName}&api-version=7.0"
-                    curl -s -X DELETE -H "Authorization: Bearer $token" "$delUrl" || true
-                  fi
-                done
-                echo "✅ Intermediate staging artifacts cleaned up successfully."
-              else
-                echo "⚠️ System token or collection URI not set. Skipping API artifact cleanup."
-              fi
-            displayName: '🧹 Delete intermediate staging artifacts (Keep only final merged artifacts)'
-            condition: always()
-            env:
-              SYSTEM_ACCESSTOKEN: $(System.AccessToken)

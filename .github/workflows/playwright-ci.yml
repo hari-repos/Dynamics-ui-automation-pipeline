@@ -206,35 +206,21 @@ jobs:
           CI: 'true'
         run: npm test --workspaces --if-present -- --grep "@persona:${{ matrix.PERSONA }}"
 
-      - name: Stage Raw Allure Files
+      - name: Stage Raw Test Telemetry
         if: always()
         run: |
-          mkdir -p allure-raw-pkg
-          find . -type d -path "*/reports/run-*/allure-results" -exec cp -r {}/. allure-raw-pkg/ \; 2>/dev/null || true
+          STAGING_DIR="raw-telemetry/${{ matrix.PERSONA }}"
+          mkdir -p "$STAGING_DIR/allure-results" "$STAGING_DIR/blob-report"
+          find . -type d -path "*/reports/run-*/allure-results" -exec cp -r {}/. "$STAGING_DIR/allure-results/" \; 2>/dev/null || true
+          find . -type d -path "*/reports/run-*/blob-report" -exec cp -r {}/. "$STAGING_DIR/blob-report/" \; 2>/dev/null || true
+          find . -type d -path "*/reports/run-*/test-results" -exec cp -r {}/. "$STAGING_DIR/blob-report/" \; 2>/dev/null || true
 
-      - name: Stage Raw Allure Telemetry
+      - name: Store Raw Telemetry in Internal Cache
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/cache/save@v4
         with:
-          name: allure-raw-${{ matrix.PERSONA }}
-          path: allure-raw-pkg
-          retention-days: 7
-
-      - name: Stage Raw Playwright Blob Files
-        if: always()
-        run: |
-          mkdir -p blob-raw-pkg
-          find . -type d -path "*/reports/run-*/blob-report" -exec cp -r {}/. blob-raw-pkg/ \; 2>/dev/null || true
-          find . -type d -path "*/reports/run-*/test-results" -exec cp -r {}/. blob-raw-pkg/ \; 2>/dev/null || true
-          find . -type d -name "blob-report" -exec cp -r {}/. blob-raw-pkg/ \; 2>/dev/null || true
-
-      - name: Stage Raw Playwright Blob Telemetry
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: blob-raw-${{ matrix.PERSONA }}
-          path: blob-raw-pkg
-          retention-days: 7
+          key: telemetry-${{ github.run_id }}-${{ matrix.PERSONA }}
+          path: raw-telemetry/${{ matrix.PERSONA }}
 
       - name: Release Git Lock Branch
         if: always()
@@ -264,17 +250,19 @@ jobs:
       - name: Install Workspace Dependencies
         run: npm ci
 
-      - name: Download Raw Allure Telemetry
-        uses: actions/download-artifact@v4
+      - name: Restore Raw Telemetry from Internal Cache
+        uses: actions/cache/restore@v4
         with:
-          pattern: allure-raw-*
-          path: allure-raw-all
+          key: telemetry-${{ github.run_id }}-merged
+          restore-keys: |
+            telemetry-${{ github.run_id }}-
+          path: raw-telemetry
 
       - name: Merge Allure JSON Results into allure-results Folder
         if: always()
         run: |
           mkdir -p allure-results
-          find allure-raw-all -type f -exec cp {} allure-results/ \;
+          cp -r raw-telemetry/*/allure-results/. allure-results/ 2>/dev/null || true
 
       - name: Upload Merged Allure Results Artifact
         if: always()
@@ -283,17 +271,11 @@ jobs:
           name: allure-results
           path: allure-results
 
-      - name: Download Raw Playwright Blob Telemetry
-        uses: actions/download-artifact@v4
-        with:
-          pattern: blob-raw-*
-          path: blob-raw-all
-
       - name: Merge Playwright Blob Reports into Single HTML Report
         if: always()
         run: |
           mkdir -p blob-report-merged
-          find blob-raw-all -type f -exec cp {} blob-report-merged/ \;
+          cp -r raw-telemetry/*/blob-report/. blob-report-merged/ 2>/dev/null || true
           npx playwright merge-reports blob-report-merged --reporter=html
 
       - name: Upload Merged Playwright HTML Report Artifact
