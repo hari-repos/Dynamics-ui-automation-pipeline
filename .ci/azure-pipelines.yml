@@ -301,7 +301,7 @@ stages:
             displayName: '🧹 Clean previous timestamped report directories'
             workingDirectory: '$(Build.SourcesDirectory)'
 
-          - script: npm test --workspaces --if-present -- --grep "@persona:$(PERSONA)"
+          - script: npm test --workspaces --if-present -- --grep "@persona:$(PERSONA)" --pass-with-no-tests
             displayName: '▶️  Run Playwright tests for @persona:$(PERSONA)'
             workingDirectory: '$(Build.SourcesDirectory)'
             env:

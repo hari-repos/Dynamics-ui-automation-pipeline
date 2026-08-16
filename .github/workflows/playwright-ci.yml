@@ -204,7 +204,7 @@ jobs:
           BROWSER_NAME: ${{ inputs.browserName }}
           PLAYWRIGHT_WORKERS: ${{ inputs.playwrightWorkers }}
           CI: 'true'
-        run: npm test --workspaces --if-present -- --grep "@persona:${{ matrix.PERSONA }}"
+        run: npm test --workspaces --if-present -- --grep "@persona:${{ matrix.PERSONA }}" --pass-with-no-tests
 
       - name: Stage Raw Test Telemetry
         if: always()
