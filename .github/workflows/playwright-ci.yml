@@ -186,8 +186,8 @@ jobs:
       - name: Generate BDD Specs
         run: npm run bddgen --workspaces --if-present -- --tags "@persona:${{ matrix.PERSONA }}"
 
-      - name: Clean Previous Test Result Directories
-        run: rm -rf **/test-results **/blob-report **/allure-results
+      - name: Clean Previous Timestamped Report Directories
+        run: find . -type d -path "*/reports/run-*" -exec rm -rf {} + 2>/dev/null || true
 
       - name: Run Playwright Tests
         env:
@@ -206,13 +206,13 @@ jobs:
           CI: 'true'
         run: npm test --workspaces --if-present -- --grep "@persona:${{ matrix.PERSONA }}"
 
-      - name: Package Raw Allure Files
+      - name: Stage Raw Allure Files
         if: always()
         run: |
           mkdir -p allure-raw-pkg
-          find . -type f \( -name "*-result.json" -o -name "*-container.json" -o -name "*-attachment.*" \) -exec cp {} allure-raw-pkg/ \; 2>/dev/null || true
+          find . -type d -path "*/reports/run-*/allure-results" -exec cp -r {}/. allure-raw-pkg/ \; 2>/dev/null || true
 
-      - name: Upload Raw Allure Artifact
+      - name: Stage Raw Allure Telemetry
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -220,13 +220,14 @@ jobs:
           path: allure-raw-pkg
           retention-days: 7
 
-      - name: Package Raw Playwright Blob Files
+      - name: Stage Raw Playwright Blob Files
         if: always()
         run: |
           mkdir -p blob-raw-pkg
+          find . -type d -path "*/reports/run-*/test-results" -exec cp -r {}/. blob-raw-pkg/ \; 2>/dev/null || true
           find . -type d -name "blob-report" -exec cp -r {}/. blob-raw-pkg/ \; 2>/dev/null || true
 
-      - name: Upload Raw Playwright Blob Artifact
+      - name: Stage Raw Playwright Blob Telemetry
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -262,7 +263,7 @@ jobs:
       - name: Install Workspace Dependencies
         run: npm ci
 
-      - name: Download Raw Allure Artifacts
+      - name: Download Raw Allure Telemetry
         uses: actions/download-artifact@v4
         with:
           pattern: allure-raw-*
@@ -281,7 +282,7 @@ jobs:
           name: allure-results
           path: allure-results
 
-      - name: Download Raw Playwright Blob Artifacts
+      - name: Download Raw Playwright Blob Telemetry
         uses: actions/download-artifact@v4
         with:
           pattern: blob-raw-*
