@@ -454,3 +454,31 @@ stages:
             inputs:
               targetPath: '$(Build.SourcesDirectory)/playwright-report'
               artifact: 'playwright-report'
+
+          # 3. Clean up intermediate raw staging artifacts via ADO API so only final merged artifacts remain
+          - bash: |
+              token="$(System.AccessToken)"
+              collectionUri="$(System.TeamFoundationCollectionUri)"
+              project="$(System.TeamProject)"
+              buildId="$(Build.BuildId)"
+
+              if [ -n "$token" ] && [ -n "$collectionUri" ] && [ -n "$project" ]; then
+                echo "Fetching pipeline artifacts for Build #$buildId..."
+                apiUrl="${collectionUri.replace(/\/$/, '')}/${project}/_apis/build/builds/${buildId}/artifacts?api-version=7.0"
+                artifactsJson=$(curl -s -H "Authorization: Bearer $token" "$apiUrl")
+
+                echo "$artifactsJson" | jq -r '.value[]? | select(.name | startswith("allure-raw-") or startswith("blob-raw-")) | .name' | while read -r artName; do
+                  if [ -n "$artName" ]; then
+                    echo "🧹 Deleting intermediate staging artifact: $artName"
+                    delUrl="${collectionUri.replace(/\/$/, '')}/${project}/_apis/build/builds/${buildId}/artifacts?artifactName=${artName}&api-version=7.0"
+                    curl -s -X DELETE -H "Authorization: Bearer $token" "$delUrl" || true
+                  fi
+                done
+                echo "✅ Intermediate staging artifacts cleaned up successfully."
+              else
+                echo "⚠️ System token or collection URI not set. Skipping API artifact cleanup."
+              fi
+            displayName: '🧹 Delete intermediate staging artifacts (Keep only final merged artifacts)'
+            condition: always()
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
