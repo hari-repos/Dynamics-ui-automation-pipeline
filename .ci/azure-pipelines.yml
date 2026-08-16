@@ -313,6 +313,10 @@ stages:
             displayName: '⚙️  Generate BDD specs for @persona:$(PERSONA)'
             workingDirectory: '$(Build.SourcesDirectory)'
 
+          - bash: rm -rf **/test-results **/blob-report **/allure-results
+            displayName: '🧹 Clean previous test result directories'
+            workingDirectory: '$(Build.SourcesDirectory)'
+
           - script: npm test --workspaces --if-present -- --grep "@persona:$(PERSONA)"
             displayName: '▶️  Run Playwright tests for @persona:$(PERSONA)'
             workingDirectory: '$(Build.SourcesDirectory)'
@@ -331,6 +335,7 @@ stages:
               PLAYWRIGHT_WORKERS: '${{ parameters.playwrightWorkers }}'
               CI: 'true'
 
+          # Publish JUnit XML for THIS job immediately to ADO Tests tab
           - task: PublishTestResults@2
             displayName: '📋 Publish JUnit XML test results'
             condition: always()
@@ -339,22 +344,35 @@ stages:
               testResultsFiles: '**/test-results/junit/*.xml'
               searchFolder: '$(Build.SourcesDirectory)'
               testRunTitle: '@persona:$(PERSONA) — ${{ parameters.environment }}'
-              mergeTestResults: true
+              mergeTestResults: false
 
+          # Package raw Allure files for Stage 3 merging
           - bash: |
-              mkdir -p $(Build.ArtifactStagingDirectory)/raw-data
-              find . -type d -name "blob-report" -exec cp -r {} $(Build.ArtifactStagingDirectory)/raw-data/ \; 2>/dev/null || true
-              find . -type d -name "allure-results" -exec cp -r {} $(Build.ArtifactStagingDirectory)/raw-data/ \; 2>/dev/null || true
-              find . -type d -name "test-results" -exec cp -r {} $(Build.ArtifactStagingDirectory)/raw-data/ \; 2>/dev/null || true
-            displayName: '📁 Package lightweight raw test data (blob-report & allure-results)'
+              mkdir -p $(Build.ArtifactStagingDirectory)/allure-raw
+              find . -type f \( -name "*-result.json" -o -name "*-container.json" -o -name "*-attachment.*" \) -exec cp {} $(Build.ArtifactStagingDirectory)/allure-raw/ \; 2>/dev/null || true
+            displayName: '📁 Package raw Allure files'
             condition: always()
 
           - task: PublishPipelineArtifact@1
-            displayName: '📦 Upload raw test data artifact'
+            displayName: '📦 Upload raw Allure artifact'
             condition: always()
             inputs:
-              targetPath: '$(Build.ArtifactStagingDirectory)/raw-data'
-              artifact: 'raw-data-$(PERSONA)'
+              targetPath: '$(Build.ArtifactStagingDirectory)/allure-raw'
+              artifact: 'allure-raw-$(PERSONA)'
+
+          # Package raw Playwright Blob report files for Stage 3 merging
+          - bash: |
+              mkdir -p $(Build.ArtifactStagingDirectory)/blob-raw
+              find . -type d -name "blob-report" -exec cp -r {}/. $(Build.ArtifactStagingDirectory)/blob-raw/ \; 2>/dev/null || true
+            displayName: '📁 Package raw Playwright Blob report files'
+            condition: always()
+
+          - task: PublishPipelineArtifact@1
+            displayName: '📦 Upload raw Playwright Blob artifact'
+            condition: always()
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)/blob-raw'
+              artifact: 'blob-raw-$(PERSONA)'
 
           - bash: bash $(SCRIPTS_DIR)/release-account.sh
             displayName: '🔑 Release service account Git lock'
@@ -364,7 +382,7 @@ stages:
               ASSIGNED_ACCOUNT: $(ASSIGNED_ACCOUNT)
 
   # ---------------------------------------------------------------------------
-  # STAGE 3 — Merged Reporting (Single-Folder Artifacts Only)
+  # STAGE 3 — Merged Reporting (Artifacts Only)
   # ---------------------------------------------------------------------------
   - stage: Report
     displayName: '📊 Merged Report'
@@ -407,24 +425,20 @@ stages:
           - script: npm ci
             displayName: 'Install workspace dependencies'
 
+          # 1. Allure Results Merging & Publishing
           - task: DownloadPipelineArtifact@2
-            displayName: '⬇️  Download raw test data from all jobs'
+            displayName: '⬇️  Download raw Allure artifacts'
             inputs:
               buildType: 'current'
-              itemPattern: 'raw-data-*/**'
-              targetPath: '$(Pipeline.Workspace)/all-raw'
+              itemPattern: 'allure-raw-*/**'
+              targetPath: '$(Pipeline.Workspace)/allure-raw-all'
 
           - bash: |
-              mkdir -p allure-results
-              find $(Pipeline.Workspace)/all-raw -type f -name "*-result.json" -exec cp {} allure-results/ \;
-              echo "Merged Allure JSON files:"
-              ls -l allure-results | head -10
-            displayName: '📊 Merge Allure JSON results into single folder'
-            condition: always()
-
-          - bash: |
-              npx playwright merge-reports $(Pipeline.Workspace)/all-raw/raw-data-*/blob-report --reporter=html
-            displayName: '🌐 Merge Playwright Blob Reports into single unified HTML report'
+              mkdir -p $(Build.SourcesDirectory)/allure-results
+              find $(Pipeline.Workspace)/allure-raw-all -type f -exec cp {} $(Build.SourcesDirectory)/allure-results/ \;
+              echo "Merged Allure JSON files in allure-results:"
+              ls -la $(Build.SourcesDirectory)/allure-results | head -15
+            displayName: '📊 Merge Allure JSON results into allure-results folder'
             condition: always()
 
           - task: PublishPipelineArtifact@1
@@ -434,8 +448,23 @@ stages:
               targetPath: '$(Build.SourcesDirectory)/allure-results'
               artifact: 'allure-results'
 
+          # 2. Playwright HTML Report Merging & Publishing (Using Single Target Directory)
+          - task: DownloadPipelineArtifact@2
+            displayName: '⬇️  Download raw Playwright Blob artifacts'
+            inputs:
+              buildType: 'current'
+              itemPattern: 'blob-raw-*/**'
+              targetPath: '$(Pipeline.Workspace)/blob-raw-all'
+
+          - bash: |
+              mkdir -p $(Build.SourcesDirectory)/blob-report-merged
+              find $(Pipeline.Workspace)/blob-raw-all -type f -exec cp {} $(Build.SourcesDirectory)/blob-report-merged/ \;
+              npx playwright merge-reports $(Build.SourcesDirectory)/blob-report-merged --reporter=html
+            displayName: '🌐 Merge Playwright Blob Reports into playwright-report HTML'
+            condition: always()
+
           - task: PublishPipelineArtifact@1
-            displayName: '📦 Publish merged playwright-report HTML artifact'
+            displayName: '📦 Publish merged playwright-report artifact'
             condition: always()
             inputs:
               targetPath: '$(Build.SourcesDirectory)/playwright-report'

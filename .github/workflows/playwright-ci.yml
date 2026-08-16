@@ -186,6 +186,9 @@ jobs:
       - name: Generate BDD Specs
         run: npm run bddgen --workspaces --if-present -- --tags "@persona:${{ matrix.PERSONA }}"
 
+      - name: Clean Previous Test Result Directories
+        run: rm -rf **/test-results **/blob-report **/allure-results
+
       - name: Run Playwright Tests
         env:
           TEST_USERNAME: ${{ env.TEST_USERNAME }}
@@ -203,20 +206,32 @@ jobs:
           CI: 'true'
         run: npm test --workspaces --if-present -- --grep "@persona:${{ matrix.PERSONA }}"
 
-      - name: Package Lightweight Raw Test Data
+      - name: Package Raw Allure Files
         if: always()
         run: |
-          mkdir -p raw-data-pkg
-          find . -type d -name "blob-report" -exec cp -r {} raw-data-pkg/ \; 2>/dev/null || true
-          find . -type d -name "allure-results" -exec cp -r {} raw-data-pkg/ \; 2>/dev/null || true
-          find . -type d -name "test-results" -exec cp -r {} raw-data-pkg/ \; 2>/dev/null || true
+          mkdir -p allure-raw-pkg
+          find . -type f \( -name "*-result.json" -o -name "*-container.json" -o -name "*-attachment.*" \) -exec cp {} allure-raw-pkg/ \; 2>/dev/null || true
 
-      - name: Upload Raw Test Data Artifact
+      - name: Upload Raw Allure Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: raw-data-${{ matrix.PERSONA }}
-          path: raw-data-pkg
+          name: allure-raw-${{ matrix.PERSONA }}
+          path: allure-raw-pkg
+          retention-days: 7
+
+      - name: Package Raw Playwright Blob Files
+        if: always()
+        run: |
+          mkdir -p blob-raw-pkg
+          find . -type d -name "blob-report" -exec cp -r {}/. blob-raw-pkg/ \; 2>/dev/null || true
+
+      - name: Upload Raw Playwright Blob Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-raw-${{ matrix.PERSONA }}
+          path: blob-raw-pkg
           retention-days: 7
 
       - name: Release Git Lock Branch
@@ -247,31 +262,41 @@ jobs:
       - name: Install Workspace Dependencies
         run: npm ci
 
-      - name: Download All Raw Data Artifacts
+      - name: Download Raw Allure Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: all-raw
+          pattern: allure-raw-*
+          path: allure-raw-all
 
-      - name: Merge Allure JSON Results
+      - name: Merge Allure JSON Results into allure-results Folder
         if: always()
         run: |
           mkdir -p allure-results
-          find all-raw -type f -name "*-result.json" -exec cp {} allure-results/ \;
+          find allure-raw-all -type f -exec cp {} allure-results/ \;
 
-      - name: Merge Playwright Blob Reports into Single HTML Report
-        if: always()
-        run: npx playwright merge-reports all-raw/raw-data-*/blob-report --reporter=html
-
-      - name: Upload Merged Playwright HTML Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: playwright-report
-
-      - name: Upload Merged Allure Results
+      - name: Upload Merged Allure Results Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-results
           path: allure-results
+
+      - name: Download Raw Playwright Blob Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: blob-raw-*
+          path: blob-raw-all
+
+      - name: Merge Playwright Blob Reports into Single HTML Report
+        if: always()
+        run: |
+          mkdir -p blob-report-merged
+          find blob-raw-all -type f -exec cp {} blob-report-merged/ \;
+          npx playwright merge-reports blob-report-merged --reporter=html
+
+      - name: Upload Merged Playwright HTML Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
